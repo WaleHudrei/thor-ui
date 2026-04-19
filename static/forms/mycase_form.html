@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Thor — MyCase Scraper</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/thor.css">
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebar-slot"></div>
+  <main class="main">
+    <div class="flex-between mb-24">
+      <div>
+        <h1>⚖ MyCase</h1>
+        <p class="subtitle" style="margin-bottom:0">Indiana court filings — evictions, foreclosures, small claims, probate</p>
+      </div>
+      <a href="/" class="btn ghost">← Back to scrapers</a>
+    </div>
+
+    <div class="card">
+      <h2>Configure scrape</h2>
+
+      <div class="form-row">
+        <label>Case types</label>
+        <div class="checkbox-grid">
+          <label><input type="checkbox" name="case_types" value="EV" checked> EV — Eviction</label>
+          <label><input type="checkbox" name="case_types" value="MF" checked> MF — Mortgage Foreclosure</label>
+          <label><input type="checkbox" name="case_types" value="CC" checked> CC — Civil Collections</label>
+          <label><input type="checkbox" name="case_types" value="SC"> SC — Small Claims</label>
+          <label><input type="checkbox" name="case_types" value="ES"> ES — Estate (Probate)</label>
+          <label><input type="checkbox" name="case_types" value="EU"> EU — Estate Unsupervised</label>
+          <label><input type="checkbox" name="case_types" value="EM"> EM — Estate Misc</label>
+          <label><input type="checkbox" name="case_types" value="PR"> PR — Probate</label>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Counties</label>
+        <select id="countyPreset">
+          <option value="priority" selected>Priority (Marion, Allen, Lake, Vanderburgh)</option>
+          <option value="custom">Custom list…</option>
+        </select>
+        <div class="text-mute" style="font-size:11px;margin-top:4px">Max 10 courts per job (MyCase guardrail)</div>
+        <div id="customCountiesRow" style="display:none;margin-top:10px">
+          <input type="text" id="customCounties" placeholder="marion, allen, lake, hamilton, …"/>
+        </div>
+      </div>
+
+      <div class="flex gap-16">
+        <div class="form-row grow">
+          <label>Start date</label>
+          <input type="date" id="startDate"/>
+        </div>
+        <div class="form-row grow">
+          <label>End date</label>
+          <input type="date" id="endDate"/>
+        </div>
+      </div>
+      <div class="text-mute" style="font-size:11px;margin-top:-10px;margin-bottom:20px">
+        Max 90 days. Longer ranges auto-chunk server-side.
+      </div>
+
+      <div class="flex gap-12 mt-24">
+        <button class="btn" id="runBtn" onclick="startScrape()">▶ Start scrape</button>
+        <button class="btn ghost" onclick="window.location.href='/jobs'">View all jobs</button>
+      </div>
+    </div>
+
+    <!-- Run panel -->
+    <div class="card" id="runCard" style="display:none">
+      <div class="flex-between mb-12">
+        <div>
+          <h2 style="margin-bottom:4px">Current run</h2>
+          <div class="text-mute mono" style="font-size:12px" id="jobIdLabel">—</div>
+        </div>
+        <div>
+          <span id="statusPill"></span>
+          <button class="btn ghost small" id="cancelBtn" onclick="cancelJob()" style="margin-left:8px">Cancel</button>
+          <button class="btn ghost small" onclick="resetRun()" style="margin-left:4px">New run</button>
+        </div>
+      </div>
+
+      <div class="flex gap-16 mb-12" style="flex-wrap:wrap">
+        <div><span class="text-mute" style="font-size:11px">PROGRESS</span>
+          <div class="mono" id="progressLabel" style="font-size:18px;font-weight:700">0 / 0</div></div>
+        <div><span class="text-mute" style="font-size:11px">LEADS</span>
+          <div class="mono" id="resultsLabel" style="font-size:18px;font-weight:700;color:var(--success)">0</div></div>
+        <div><span class="text-mute" style="font-size:11px">ERRORS</span>
+          <div class="mono" id="errorsLabel" style="font-size:18px;font-weight:700;color:var(--warn)">0</div></div>
+      </div>
+
+      <div style="background:var(--bg-2);border-radius:6px;height:8px;overflow:hidden;margin-bottom:16px">
+        <div id="progressBar" style="height:100%;background:linear-gradient(90deg,var(--accent),#8e6bff);width:0%;transition:width 0.3s"></div>
+      </div>
+
+      <div class="logs" id="logs"></div>
+    </div>
+  </main>
+</div>
+
+<script src="/static/js/thor.js"></script>
+<script>
+mountSidebar("picker");
+
+const SCRAPER = "mycase";
+let jobId = null;
+let pollTimer = null;
+let lastLogIndex = 0;
+
+// Default dates: last 30 days
+const today = new Date();
+const monthAgo = new Date(); monthAgo.setDate(today.getDate() - 30);
+$("#startDate").value = monthAgo.toISOString().split("T")[0];
+$("#endDate").value   = today.toISOString().split("T")[0];
+
+$("#countyPreset").addEventListener("change", (e) => {
+  $("#customCountiesRow").style.display = e.target.value === "custom" ? "block" : "none";
+});
+
+function collectParams() {
+  const caseTypes = $$("input[name='case_types']:checked").map(cb => cb.value);
+  if (!caseTypes.length) { toast("Select at least one case type", "error"); return null; }
+
+  const preset = $("#countyPreset").value;
+  let counties;
+  if (preset === "priority") counties = ["marion", "allen", "lake", "vanderburgh"];
+  else {
+    const raw = $("#customCounties").value.trim();
+    if (!raw) { toast("Enter at least one county", "error"); return null; }
+    counties = raw.split(",").map(s => s.trim()).filter(Boolean);
+    if (counties.length > 10) { toast("Max 10 counties per job", "error"); return null; }
+  }
+
+  return {
+    case_types: caseTypes,
+    counties,
+    start_date: $("#startDate").value,
+    end_date: $("#endDate").value,
+  };
+}
+
+async function startScrape() {
+  const params = collectParams();
+  if (!params) return;
+
+  $("#runBtn").disabled = true;
+  $("#runBtn").textContent = "Starting…";
+
+  const { status, data } = await fetchJSON(`/api/scrape/${SCRAPER}`, {
+    method: "POST",
+    body: JSON.stringify({ params }),
+  });
+
+  $("#runBtn").disabled = false;
+  $("#runBtn").textContent = "▶ Start scrape";
+
+  if (status === 429) {
+    toast(`Cooldown active — retry in ${data.retry_after_seconds}s`, "error");
+    return;
+  }
+  if (status >= 400) {
+    toast(data.error || "Failed to start scrape", "error");
+    return;
+  }
+
+  jobId = data.job_id;
+  lastLogIndex = 0;
+  $("#jobIdLabel").textContent = jobId;
+  $("#runCard").style.display = "block";
+  $("#logs").innerHTML = "";
+  toast(`Job ${jobId} queued`, "success");
+  poll();
+  pollTimer = setInterval(poll, 2000);
+}
+
+async function poll() {
+  if (!jobId) return;
+  const { data: job } = await fetchJSON(`/api/scrape/${SCRAPER}/jobs/${jobId}`);
+  if (!job) return;
+
+  $("#statusPill").innerHTML = statusPill(job.status);
+  const cur = job.progress?.current || 0;
+  const tot = job.progress?.total || 0;
+  $("#progressLabel").textContent = `${cur} / ${tot}`;
+  $("#resultsLabel").textContent  = job.result_count || 0;
+  $("#errorsLabel").textContent   = job.error_count || 0;
+  if (tot) $("#progressBar").style.width = `${(cur / tot) * 100}%`;
+
+  const { data: logData } = await fetchJSON(
+    `/api/scrape/${SCRAPER}/jobs/${jobId}/logs?since=${lastLogIndex}`
+  );
+  if (logData?.logs?.length) {
+    const box = $("#logs");
+    logData.logs.forEach(l => {
+      const div = document.createElement("div");
+      div.className = "log-line";
+      const t = new Date(l.time).toLocaleTimeString();
+      div.innerHTML = `<span class="log-time">${t}</span><span class="log-level ${l.level}">${l.level}</span><span>${l.msg}</span>`;
+      box.appendChild(div);
+    });
+    box.scrollTop = box.scrollHeight;
+    lastLogIndex = logData.logs[logData.logs.length - 1].index + 1;
+  }
+
+  if (["done", "error", "cancelled"].includes(job.status)) {
+    clearInterval(pollTimer); pollTimer = null;
+    $("#cancelBtn").style.display = "none";
+    $("#progressBar").style.width = "100%";
+  }
+}
+
+async function cancelJob() {
+  if (!jobId) return;
+  if (!confirm("Cancel this running job?")) return;
+  const { status } = await fetchJSON(
+    `/api/scrape/${SCRAPER}/jobs/${jobId}/cancel`, { method: "POST" }
+  );
+  if (status === 200) toast("Cancel requested", "success");
+}
+
+function resetRun() {
+  jobId = null;
+  if (pollTimer) clearInterval(pollTimer);
+  $("#runCard").style.display = "none";
+  $("#cancelBtn").style.display = "inline-flex";
+}
+</script>
+</body></html>
