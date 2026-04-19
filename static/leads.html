@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Thor — Leads</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/thor.css">
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebar-slot"></div>
+  <main class="main">
+    <div class="flex-between mb-24">
+      <div>
+        <h1>Leads</h1>
+        <p class="subtitle" style="margin-bottom:0">Cross-scraper search across all data sources</p>
+      </div>
+      <div class="flex gap-8">
+        <select id="scraperFilter">
+          <option value="">All sources</option>
+          <option value="mycase">MyCase</option>
+          <option value="sri">SRI</option>
+        </select>
+        <input type="text" id="countyFilter" placeholder="County filter" style="width:160px"/>
+        <input type="number" id="limitFilter" value="200" min="10" max="5000" style="width:100px"/>
+        <button class="btn ghost small" onclick="load()">Search</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;padding:16px 20px">
+      <div class="flex-between">
+        <div><span class="text-mute" style="font-size:11px">TOTAL MATCHING</span>
+          <div class="mono" id="totalLabel" style="font-size:22px;font-weight:700">—</div></div>
+        <div><span class="text-mute" style="font-size:11px">SHOWING</span>
+          <div class="mono" id="shownLabel" style="font-size:22px;font-weight:700">—</div></div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0">
+      <div style="overflow-x:auto">
+        <table id="leadsTable">
+          <thead>
+            <tr>
+              <th>SOURCE</th>
+              <th>COUNTY</th>
+              <th>TYPE</th>
+              <th>ADDRESS</th>
+              <th>PARTY / DEFENDANT</th>
+              <th>SALE DATE</th>
+              <th>SCRAPED</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="7" class="text-dim" style="text-align:center;padding:40px">Select filters and click Search</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="/static/js/thor.js"></script>
+<script>
+mountSidebar("leads");
+
+async function load() {
+  const scraper = $("#scraperFilter").value;
+  const county  = $("#countyFilter").value.trim();
+  const limit   = $("#limitFilter").value || 200;
+
+  const params = new URLSearchParams({ limit });
+  if (scraper) params.set("scraper", scraper);
+  if (county)  params.set("county", county);
+
+  const tbody = $("#leadsTable tbody");
+  tbody.innerHTML = `<tr><td colspan="7" class="text-dim" style="text-align:center;padding:40px">Loading…</td></tr>`;
+
+  const { data } = await fetchJSON("/api/leads?" + params.toString());
+  const leads = data?.leads || [];
+
+  $("#totalLabel").textContent = (data?.total || 0).toLocaleString();
+  $("#shownLabel").textContent = leads.length.toLocaleString();
+
+  if (!leads.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="text-dim" style="text-align:center;padding:40px">No leads found</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = leads.map(l => {
+    const party = l.defendant || l.plaintiff || l.party_name || "—";
+    const type  = l.sale_type || l.case_type || "—";
+    const addr  = [l.address, l.city, l.zip_code].filter(Boolean).join(", ") || "—";
+    return `
+      <tr>
+        <td><span class="pill muted">${(l._scraper || "?").toUpperCase()}</span></td>
+        <td>${l.county || "—"}</td>
+        <td class="mono" style="font-size:11px">${type}</td>
+        <td>${addr}</td>
+        <td>${party}</td>
+        <td class="mono">${l.sale_date || l.file_date || "—"}</td>
+        <td class="text-dim">${l.scraped_at ? fmtRelative(l.scraped_at) : "—"}</td>
+      </tr>
+    `;
+  }).join("");
+}
+</script>
+</body></html>

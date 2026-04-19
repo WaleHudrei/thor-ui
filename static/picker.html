@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Thor — Scrapers</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/thor.css">
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebar-slot"></div>
+  <main class="main">
+    <h1>Choose a scraper</h1>
+    <p class="subtitle">Each scraper runs in its own Railway service with its own queue. Running one does not block others — jobs run in parallel across scrapers.</p>
+
+    <div class="card-grid" id="scraperGrid">
+      <div class="card text-dim">Loading scrapers…</div>
+    </div>
+  </main>
+</div>
+
+<script src="/static/js/thor.js"></script>
+<script>
+mountSidebar("picker");
+
+function scraperCard(key, s) {
+  const disabled = !s.enabled;
+  const online = s.online;
+
+  let statusHtml = "";
+  if (disabled) {
+    statusHtml = `<span class="pill muted">NOT CONFIGURED</span>`;
+  } else if (online) {
+    const cooldown = s.health?.cooldown?.active;
+    const queueLen = s.health?.queue?.length || 0;
+    const running  = s.health?.queue?.running || 0;
+    if (cooldown) {
+      statusHtml = `<span class="pill warn">COOLDOWN</span>`;
+    } else if (running > 0) {
+      statusHtml = `<span class="pill running">RUNNING</span>`;
+    } else if (queueLen > 0) {
+      statusHtml = `<span class="pill running">QUEUED: ${queueLen}</span>`;
+    } else {
+      statusHtml = `<span class="pill ok">ONLINE</span>`;
+    }
+  } else {
+    statusHtml = `<span class="pill error">OFFLINE</span>`;
+  }
+
+  const href = disabled ? "#" : `/scraper/${key}`;
+  const disabledAttr = disabled ? `style="opacity:0.55;cursor:not-allowed" onclick="event.preventDefault()"` : "";
+
+  return `
+    <a href="${href}" class="card" ${disabledAttr}
+       style="text-decoration:none;color:inherit;display:block;position:relative;transition:transform 0.12s,border-color 0.15s"
+       onmouseover="this.style.borderColor='var(--accent)';this.style.transform='translateY(-2px)'"
+       onmouseout="this.style.borderColor='var(--border)';this.style.transform='translateY(0)'">
+      <div style="position:absolute;top:18px;right:18px">${statusHtml}</div>
+      <div style="font-size:32px;margin-bottom:14px">${s.icon || "◇"}</div>
+      <div style="font-size:17px;font-weight:700;margin-bottom:6px">${s.name}</div>
+      <div class="text-dim" style="font-size:13px;line-height:1.5">${s.description}</div>
+      ${online ? `
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-size:11px" class="text-mute mono">
+          v${s.health.version} · proxy: ${s.health.proxy.type} · db: ${s.health.db.connected ? "✓" : "✗"}
+        </div>
+      ` : ""}
+    </a>
+  `;
+}
+
+async function load() {
+  const { data } = await fetchJSON("/api/scrapers");
+  const grid = $("#scraperGrid");
+  const entries = Object.entries(data.scrapers || {});
+  if (!entries.length) {
+    grid.innerHTML = `<div class="card text-dim">No scrapers registered.</div>`;
+    return;
+  }
+  grid.innerHTML = entries.map(([k, s]) => scraperCard(k, s)).join("");
+}
+
+load();
+setInterval(load, 15000);  // refresh status every 15s
+</script>
+</body></html>

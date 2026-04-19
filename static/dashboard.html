@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Thor — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/thor.css">
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebar-slot"></div>
+  <main class="main">
+    <h1>Dashboard</h1>
+    <p class="subtitle">Scraper status and recent activity across all sources</p>
+
+    <div class="card-grid mb-24" id="scraperStatus"></div>
+
+    <div class="card">
+      <div class="flex-between mb-12">
+        <h2 style="margin:0">Recent jobs</h2>
+        <a href="/jobs" class="btn ghost small">View all →</a>
+      </div>
+      <table id="recentJobs">
+        <thead>
+          <tr>
+            <th>SCRAPER</th>
+            <th>STATUS</th>
+            <th>LEADS</th>
+            <th>STARTED</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="4" class="text-dim" style="text-align:center;padding:20px">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<script src="/static/js/thor.js"></script>
+<script>
+mountSidebar("dashboard");
+
+async function loadScrapers() {
+  const { data } = await fetchJSON("/api/scrapers");
+  const grid = $("#scraperStatus");
+  grid.innerHTML = Object.entries(data.scrapers || {}).map(([key, s]) => {
+    const cooldown = s.health?.cooldown?.active;
+    const running  = s.health?.queue?.running || 0;
+    const queued   = s.health?.queue?.length || 0;
+    let pill;
+    if (!s.enabled) pill = `<span class="pill muted">NOT CONFIGURED</span>`;
+    else if (!s.online) pill = `<span class="pill error">OFFLINE</span>`;
+    else if (cooldown) pill = `<span class="pill warn">COOLDOWN</span>`;
+    else if (running > 0) pill = `<span class="pill running">RUNNING</span>`;
+    else pill = `<span class="pill ok">ONLINE</span>`;
+
+    return `
+      <div class="card">
+        <div class="flex-between mb-12">
+          <div style="font-size:16px;font-weight:700">${s.icon || "◇"} ${s.name}</div>
+          ${pill}
+        </div>
+        <div class="text-dim" style="font-size:12px;line-height:1.6">
+          Running: ${running} · Queued: ${queued}<br>
+          ${s.health ? `Proxy: ${s.health.proxy.type} · Uptime: ${fmtDuration(s.health.uptime_seconds)}` : ""}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+async function loadRecentJobs() {
+  const { data } = await fetchJSON("/api/jobs/history?limit=10");
+  const tbody = $("#recentJobs tbody");
+  const jobs = data?.jobs || [];
+  if (!jobs.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="text-dim" style="text-align:center;padding:20px">No recent jobs</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = jobs.map(j => `
+    <tr>
+      <td><span class="pill muted">${(j._scraper || "?").toUpperCase()}</span></td>
+      <td>${statusPill(j.status)}</td>
+      <td class="mono" style="color:var(--success)">${j.result_count || 0}</td>
+      <td class="text-dim">${j.started_at ? fmtRelative(j.started_at) : "—"}</td>
+    </tr>
+  `).join("");
+}
+
+async function loadAll() { await loadScrapers(); await loadRecentJobs(); }
+loadAll();
+setInterval(loadAll, 15000);
+</script>
+</body></html>

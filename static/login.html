@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Thor — Sign in</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/thor.css">
+<style>
+  body { display: grid; place-items: center; min-height: 100vh; }
+  .login-card {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 40px;
+    width: 100%;
+    max-width: 400px;
+  }
+  .brand-mark-lg {
+    width: 56px; height: 56px;
+    background: linear-gradient(135deg, var(--accent), #8e6bff);
+    border-radius: 12px;
+    display: grid; place-items: center;
+    color: white; font-weight: 800; font-size: 28px;
+    margin: 0 auto 20px;
+  }
+  .login-card h1 { text-align: center; margin-bottom: 4px; }
+  .login-card .subtitle { text-align: center; margin-bottom: 28px; }
+</style>
+</head>
+<body>
+<form class="login-card" method="POST">
+  <div class="brand-mark-lg">T</div>
+  <h1>Thor</h1>
+  <p class="subtitle">HudREI scraper control</p>
+  <div class="form-row">
+    <label for="password">Password</label>
+    <input type="password" name="password" id="password" autofocus required/>
+  </div>
+  <button class="btn" style="width:100%;justify-content:center" type="submit">Sign in</button>
+</form>
+</body></html>

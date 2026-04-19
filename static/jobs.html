@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Thor — Jobs</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/thor.css">
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebar-slot"></div>
+  <main class="main">
+    <div class="flex-between mb-24">
+      <div>
+        <h1>Jobs</h1>
+        <p class="subtitle" style="margin-bottom:0">Every scrape across all scrapers — auto-refreshes every 10s</p>
+      </div>
+      <div class="flex gap-8">
+        <select id="scraperFilter">
+          <option value="">All scrapers</option>
+          <option value="mycase">MyCase only</option>
+          <option value="sri">SRI only</option>
+        </select>
+        <select id="statusFilter">
+          <option value="">All statuses</option>
+          <option value="running">Running</option>
+          <option value="queued">Queued</option>
+          <option value="done">Done</option>
+          <option value="error">Error</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0">
+      <div style="overflow-x:auto">
+        <table id="jobsTable">
+          <thead>
+            <tr>
+              <th>SCRAPER</th>
+              <th>STATUS</th>
+              <th>PROGRESS</th>
+              <th>LEADS</th>
+              <th>ERRORS</th>
+              <th>STARTED</th>
+              <th>JOB ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="7" class="text-dim" style="text-align:center;padding:40px">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="/static/js/thor.js"></script>
+<script>
+mountSidebar("jobs");
+
+let allJobs = [];
+
+async function load() {
+  const scraper = $("#scraperFilter").value;
+  const url = "/api/jobs/history" + (scraper ? `?scraper=${scraper}` : "");
+  const { data } = await fetchJSON(url);
+  allJobs = data?.jobs || [];
+  render();
+}
+
+function render() {
+  const statusFilter = $("#statusFilter").value;
+  const jobs = statusFilter ? allJobs.filter(j => j.status === statusFilter) : allJobs;
+  const tbody = $("#jobsTable tbody");
+
+  if (!jobs.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="text-dim" style="text-align:center;padding:40px">No jobs found</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = jobs.map(j => {
+    const progress = `${j.progress_current || 0} / ${j.progress_total || 0}`;
+    const started = j.started_at ? fmtRelative(j.started_at) : "—";
+    return `
+      <tr>
+        <td><span class="pill muted">${(j._scraper || "?").toUpperCase()}</span></td>
+        <td>${statusPill(j.status)}</td>
+        <td class="mono">${progress}</td>
+        <td class="mono" style="color:var(--success)">${j.result_count || 0}</td>
+        <td class="mono" style="color:var(--warn)">${j.error_count || 0}</td>
+        <td class="text-dim">${started}</td>
+        <td class="mono text-mute" style="font-size:11px">${j.job_id}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+$("#scraperFilter").addEventListener("change", load);
+$("#statusFilter").addEventListener("change", render);
+load();
+setInterval(load, 10000);
+</script>
+</body></html>
